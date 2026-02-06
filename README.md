@@ -1,4 +1,4 @@
-# VATNZ NZ Extension Plugin
+# VATNZ Extension Plugin
 
 A lightweight vatSys plugin for New Zealand controllers that automatically generates clean, comma-separated sector extension lines based on active VSCS frequencies.  
 Works with any VSCS naming convention — no renaming required.
