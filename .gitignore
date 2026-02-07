@@ -1,0 +1,68 @@
+## Build results
+bin/
+obj/
+[Bb]uild/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio cache/options
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+# If you use package restore, ignore the entire packages folder except build/
+!packages/build/
+*.nuget.props
+*.nuget.targets
+
+## MSBuild
+*.cache
+*.dbmdl
+*.mdb
+*.pdb
+
+## Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## Resharper / Rider
+_ReSharper*/
+*.DotSettings.user
+.idea/
+
+## Azure / publish profiles
+*.pubxml
+*.publishsettings
+
+## Temporary files
+*.tmp
+*.temp
+*.log
+*.svclog
+*.pidb
+
+## VS Code
+.vscode/
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## JetBrains Rider
+.idea/
+*.sln.iml
+
+## Other
+*.bak
+*.orig
+*.rej
+
