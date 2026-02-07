@@ -20,5 +20,12 @@ jobs:
       uses: microsoft/setup-msbuild@v2      
     - name: Restore packages
       run: nuget restore VATNZPlugin.csproj
+    - name: Download Vatsys Installer
+      run: curl -L -o vatSysSetup.zip https://vatsys.sawbe.com/downloads/vatSysSetup.zip
+    - name: Extract ZIP
+      run: Expand-Archive vatSysSetup.zip -DestinationPath extracted
+    - name: Extract MSI 
+      run: |
+        mkdir msi msiexec /a extracted\vatSysSetup.msi /qn TARGETDIR=$PWD\vatSys-extracted
     - name: Build solution
-      run: msbuild VATNZPlugin.csproj /p:Configuration=Release
+      run: msbuild VATNZPlugin.csproj /p:Configuration=Release /p:VatsysPath="vatSys-extracted\\bin\vatSys.exe"
