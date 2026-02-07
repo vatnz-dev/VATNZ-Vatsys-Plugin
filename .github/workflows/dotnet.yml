@@ -30,3 +30,8 @@ jobs:
         msiexec /a extracted\vatSysSetup.msi /qn TARGETDIR=$PWD\vatSys-extracted
     - name: Build solution
       run: msbuild VATNZPlugin.csproj /p:Configuration=Release /p:VatsysPath="vatSys-extracted\\bin\vatSys.exe"
+    - name: Upload build output
+      uses: actions/upload-artifact@v4
+      with:
+        name: VATNZPlugin
+        path: bin\x86\Release\
