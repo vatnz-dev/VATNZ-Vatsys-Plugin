@@ -26,6 +26,7 @@ jobs:
       run: Expand-Archive vatSysSetup.zip -DestinationPath extracted
     - name: Extract MSI 
       run: |
-        mkdir msi msiexec /a extracted\vatSysSetup.msi /qn TARGETDIR=$PWD\vatSys-extracted
+        mkdir vatSys-extracted 
+        msiexec /a extracted\vatSysSetup.msi /qn TARGETDIR=$PWD\vatSys-extracted
     - name: Build solution
       run: msbuild VATNZPlugin.csproj /p:Configuration=Release /p:VatsysPath="vatSys-extracted\\bin\vatSys.exe"
