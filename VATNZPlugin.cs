@@ -31,10 +31,7 @@ namespace VATNZPlugin
                 "vatSysPluginDebug"
             );
 
-            Directory.CreateDirectory(folder);
-            debugPath = Path.Combine(folder, "vatnz_plugin_debug.txt");
-
-            File.WriteAllText(debugPath, $"[{DateTime.Now}] VATNZPlugin loaded\n");
+  
         }
 
         public void OnFDRUpdate(FDR updated)
@@ -55,7 +52,7 @@ namespace VATNZPlugin
 
                 UpdateExtensions();
 
-                Log("Plugin initialized");
+               
             }
         }
 
@@ -100,7 +97,6 @@ namespace VATNZPlugin
                 string profilePath = FindNZProfilePath();
                 if (profilePath == null)
                 {
-                    Log("Could not locate NZ profile folder");
                     return;
                 }
 
@@ -131,11 +127,11 @@ namespace VATNZPlugin
                     callsignToName[callsign.Trim()] = name.Trim();
                 }
 
-                Log($"Loaded {callsignToName.Count} NZ CTR sectors");
+               
             }
-            catch (Exception ex)
+            catch (Exception )
             {
-                Log($"ERROR loading sectors: {ex}");
+              
             }
         }
 
@@ -158,7 +154,7 @@ namespace VATNZPlugin
                 if (freqs.Count == 0)
                     return;
 
-                Log($"VSCS count = {freqs.Count}");
+             
 
                 var extending = new List<string>();
 
@@ -166,7 +162,7 @@ namespace VATNZPlugin
                 {
                     string vsFreqStr = Conversions.FrequencyToString(freq.Frequency);
 
-                    Log($"VSCS: Name={freq.Name}, TX={freq.Transmit}, FreqStr={vsFreqStr}, Raw={freq.Frequency}");
+                   
 
                     if (!freq.Transmit)
                         continue;
@@ -189,9 +185,9 @@ namespace VATNZPlugin
 
                 UpdateControllerInfo(extendingText);
             }
-            catch (Exception ex)
+            catch (Exception )
             {
-                Log($"ERROR in UpdateExtensions: {ex}");
+      
             }
         }
 
@@ -217,7 +213,7 @@ namespace VATNZPlugin
 
             Network.ControllerInfo = newInfo.ToArray();
 
-            Log($"Updated controller info: {extending}");
+        
         }
 
         private void Log(string msg)
