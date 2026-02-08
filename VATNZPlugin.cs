@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
+using System.Xml.Linq;
 using System.Timers;
 using vatsys;
 using vatsys.Plugin;
@@ -16,19 +17,12 @@ namespace VATNZPlugin
     {
         public string Name => "VATNZ Plugin";
 
+        private bool initialized = false;
         private readonly string debugPath;
-        private readonly Timer extensionTimer;
+        private Timer fallbackTimer;
 
-    
-        private readonly Dictionary<string, string> freqToSector = new Dictionary<string, string>()
-        {
-            { "123.9", "OCR" },
-            { "119.5", "BAY" },
-            { "123.7", "NAK" },
-            { "126.2", "OHA" },
-            { "129.3", "STH" },
-            { "129.4", "KAI" }
-        };
+        private readonly Dictionary<string, string> callsignToName =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public VATNZPlugin()
         {
@@ -41,115 +35,194 @@ namespace VATNZPlugin
             debugPath = Path.Combine(folder, "vatnz_plugin_debug.txt");
 
             File.WriteAllText(debugPath, $"[{DateTime.Now}] VATNZPlugin loaded\n");
-
-           
-            extensionTimer = new Timer(2000);
-            extensionTimer.Elapsed += (s, e) => UpdateExtensions();
-            extensionTimer.Start();
         }
 
-        public void OnFDRUpdate(FDR updated) { }
+        public void OnFDRUpdate(FDR updated)
+        {
+            if (!initialized)
+            {
+                initialized = true;
+
+                LoadSectorsFromXml();
+
+                Audio.VSCSFrequenciesChanged += OnVSCSFrequenciesChanged;
+                Audio.FrequencyErrorStateChanged += OnVSCSFrequenciesChanged;
+                Network.PrimaryFrequencyChanged += OnVSCSFrequenciesChanged;
+
+                fallbackTimer = new Timer(1000);
+                fallbackTimer.Elapsed += (s, e) => UpdateExtensions();
+                fallbackTimer.Start();
+
+                UpdateExtensions();
+
+                Log("Plugin initialized");
+            }
+        }
+
         public void OnRadarTrackUpdate(RadarTrack updated) { }
+
+        private string FindNZProfilePath()
+        {
+            string profilesRoot = Path.Combine(
+                Helpers.GetFilesFolder(),
+                "Profiles"
+            );
+
+            foreach (var folder in Directory.GetDirectories(profilesRoot))
+            {
+                string sectorsPath = Path.Combine(folder, "Sectors.xml");
+                if (!File.Exists(sectorsPath))
+                    continue;
+
+                var doc = XDocument.Load(sectorsPath);
+
+                bool isNZ = doc
+                    .Descendants("Sector")
+                    .Any(x =>
+                    {
+                        var cs = (string)x.Attribute("Callsign") ?? "";
+                        return cs.StartsWith("NZ", StringComparison.OrdinalIgnoreCase)
+                               && cs.EndsWith("_CTR", StringComparison.OrdinalIgnoreCase)
+                               && x.Element("Volumes") != null;
+                    });
+
+                if (isNZ)
+                    return folder;
+            }
+
+            return null;
+        }
+
+        private void LoadSectorsFromXml()
+        {
+            try
+            {
+                string profilePath = FindNZProfilePath();
+                if (profilePath == null)
+                {
+                    Log("Could not locate NZ profile folder");
+                    return;
+                }
+
+                string path = Path.Combine(profilePath, "Sectors.xml");
+
+                var doc = XDocument.Load(path);
+
+                var sectors = doc
+                    .Descendants("Sector")
+                    .Where(x =>
+                    {
+                        var cs = (string)x.Attribute("Callsign") ?? "";
+                        return cs.StartsWith("NZ", StringComparison.OrdinalIgnoreCase)
+                               && cs.EndsWith("_CTR", StringComparison.OrdinalIgnoreCase)
+                               && x.Element("Volumes") != null;
+                    });
+
+                callsignToName.Clear();
+
+                foreach (var s in sectors)
+                {
+                    string callsign = (string)s.Attribute("Callsign");
+                    string name = (string)s.Attribute("Name");
+
+                    if (string.IsNullOrWhiteSpace(callsign) || string.IsNullOrWhiteSpace(name))
+                        continue;
+
+                    callsignToName[callsign.Trim()] = name.Trim();
+                }
+
+                Log($"Loaded {callsignToName.Count} NZ CTR sectors");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR loading sectors: {ex}");
+            }
+        }
+
+        private void OnVSCSFrequenciesChanged(object sender, EventArgs e)
+        {
+            UpdateExtensions();
+        }
 
         private void UpdateExtensions()
         {
             try
             {
-                
                 if (Network.Me == null || string.IsNullOrEmpty(Network.Me.Callsign))
-                {
-            
-                    var controllerInfo = Network.ControllerInfo;
-                    if (controllerInfo != null)
-                    {
-                        var newInfo = controllerInfo
-                            .Where(line => !line.StartsWith("Extending"))
-                            .ToArray();
-
-                        Network.ControllerInfo = newInfo;
-                        Log("Disconnected — cleared extension line");
-                    }
-
                     return;
-                }
+
+                if (!Network.Me.Callsign.EndsWith("_CTR"))
+                    return;
+
+                var freqs = Audio.VSCSFrequencies;
+                if (freqs.Count == 0)
+                    return;
+
+                Log($"VSCS count = {freqs.Count}");
 
                 var extending = new List<string>();
 
-                foreach (var freq in Audio.VSCSFrequencies)
+                foreach (var freq in freqs)
                 {
-                    string freqStr = Conversions.FrequencyToString(freq.Frequency);
-                    Log($"VSCS: Name={freq.Name}, Freq={freqStr}, Raw={freq.Frequency}");
+                    string vsFreqStr = Conversions.FrequencyToString(freq.Frequency);
+
+                    Log($"VSCS: Name={freq.Name}, TX={freq.Transmit}, FreqStr={vsFreqStr}, Raw={freq.Frequency}");
 
                     if (!freq.Transmit)
                         continue;
 
-                   
-                    if (Audio.VSCSFrequencies.Any(f =>
-    f.Transmit &&
-    Math.Abs(f.Frequency - freq.Frequency) < 1 &&
-    string.Equals(f.Name, Network.Me?.Callsign, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        Log($"Skipping own frequency {freqStr}");
-                        continue;
-                    }
-
-                    if (!freqToSector.TryGetValue(freqStr, out string sector))
+                    if (!freq.Name.EndsWith("_CTR", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    extending.Add($"{sector} {freqStr}");
+                    if (string.Equals(freq.Name, Network.Me.Callsign, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!callsignToName.TryGetValue(freq.Name, out string shortName))
+                        continue;
+
+                    extending.Add($"{shortName} {vsFreqStr}");
                 }
 
                 string extendingText = extending.Any()
-                    ? $"Extending {DoText(extending)}"
+                    ? $"Extending {string.Join(", ", extending)}"
                     : string.Empty;
 
                 UpdateControllerInfo(extendingText);
             }
             catch (Exception ex)
             {
-                Log($"ERROR: {ex}");
+                Log($"ERROR in UpdateExtensions: {ex}");
             }
-        }
-
-      
-        private string DoText(List<string> items)
-        {
-            return string.Join(", ", items);
         }
 
         private void UpdateControllerInfo(string extending)
         {
-            var controllerInfo = Network.ControllerInfo;
-            if (controllerInfo == null)
+            var info = Network.ControllerInfo;
+            if (info == null)
                 return;
 
             var newInfo = new List<string>();
 
-          
-            foreach (var line in controllerInfo)
+            foreach (var line in info)
             {
-                if (!line.StartsWith("Extending"))
+                if (!line.StartsWith("Extending", StringComparison.OrdinalIgnoreCase))
                     newInfo.Add(line);
             }
 
             if (!string.IsNullOrEmpty(extending))
                 newInfo.Add(extending);
 
+            if (newInfo.Count > 5)
+                newInfo = newInfo.Skip(newInfo.Count - 5).ToList();
+
             Network.ControllerInfo = newInfo.ToArray();
 
             Log($"Updated controller info: {extending}");
         }
 
-        private void Log(string message)
+        private void Log(string msg)
         {
-            try
-            {
-                File.AppendAllText(debugPath, $"[{DateTime.Now}] {message}\n");
-            }
-            catch
-            {
-               
-            }
+            File.AppendAllText(debugPath, $"[{DateTime.Now}] {msg}\n");
         }
     }
 }
