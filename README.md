@@ -24,7 +24,7 @@ Works with any VSCS naming convention — no renaming required.
 
 The extension line disappears as soon as you disconnect from VATSIM.
 
-## Updates every 2 seconds
+## Updates every time the VSCS is updated
 
 Ensures the extension line is always accurate.
 
