@@ -133,8 +133,9 @@ namespace VATNZPlugin
             if (Network.Me == null || string.IsNullOrEmpty(Network.Me.Callsign))
                 return;
 
-            if (!Network.Me.Callsign.EndsWith("_CTR"))
+            if (!Network.Me.Callsign.EndsWith("_CTR", StringComparison.OrdinalIgnoreCase))
                 return;
+
 
             var freqs = Audio.VSCSFrequencies;
             if (freqs.Count == 0)
