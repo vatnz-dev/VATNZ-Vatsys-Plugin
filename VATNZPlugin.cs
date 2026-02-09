@@ -4,6 +4,7 @@ using System.ComponentModel.Composition;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using System.Timers;
 using vatsys;
 using vatsys.Plugin;
 using static vatsys.FDP2;
@@ -37,21 +38,60 @@ namespace VATNZPlugin
             Audio.FrequencyErrorStateChanged += OnVSCSFrequenciesChanged;
             Network.PrimaryFrequencyChanged += OnVSCSFrequenciesChanged;
 
-            UpdateExtensions();
+            var startupTimer = new Timer(1000);
+            startupTimer.Elapsed += (s, e) =>
+            {
+                startupTimer.Stop();
+                UpdateExtensions();
+            };
+            startupTimer.Start();
         }
 
         public void OnFDRUpdate(FDR updated) { }
         public void OnRadarTrackUpdate(RadarTrack updated) { }
 
-        private void LoadSectorsFromXml()
+        private string FindNZProfilePath()
         {
-            string path = Path.Combine(
+            string profilesRoot = Path.Combine(
                 Helpers.GetFilesFolder(),
-                "Profiles",
-                Profile.Name,
-                "Sectors.xml"
+                "Profiles"
             );
 
+            foreach (var folder in Directory.GetDirectories(profilesRoot))
+            {
+                string sectorsPath = Path.Combine(folder, "Sectors.xml");
+                if (!File.Exists(sectorsPath))
+                    continue;
+
+                var doc = XDocument.Load(sectorsPath);
+
+                bool isNZ = doc
+                    .Descendants("Sector")
+                    .Any(x =>
+                    {
+                        var cs = (string)x.Attribute("Callsign") ?? "";
+                        return cs.StartsWith("NZ", StringComparison.OrdinalIgnoreCase)
+                               && cs.EndsWith("_CTR", StringComparison.OrdinalIgnoreCase)
+                               && x.Element("Volumes") != null;
+                    });
+
+                if (isNZ)
+                {
+                    Log($"Using profile folder: {folder}");
+                    return folder;
+                }
+            }
+
+            return null;
+        }
+
+        private void LoadSectorsFromXml()
+        {
+            string profilePath = FindNZProfilePath();
+            if (profilePath == null)
+                return;
+
+            string path = Path.Combine(profilePath, "Sectors.xml");
             if (!File.Exists(path))
                 return;
 
