@@ -3,35 +3,124 @@ name: Build
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-
     runs-on: windows-latest
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Determine version
+      id: version
+      shell: pwsh
+      run: |
+        $ref = "${{ github.ref }}"
+        $refName = "${{ github.ref_name }}"
+        $eventName = "${{ github.event_name }}"
+
+        if ($eventName -eq "pull_request") {
+          $version = "0.0.${{ github.run_number }}"
+          $tag = "pr-${{ github.run_number }}"
+        }
+        elseif ($ref -like "refs/tags/*") {
+          $tag = $refName
+          $version = $tag.TrimStart("v")
+        }
+        elseif ($ref -eq "refs/heads/main") {
+          $latestTag = git tag --list "v*" | Sort-Object { [version]($_.TrimStart("v")) } | Select-Object -Last 1
+
+          if (-not $latestTag) {
+            $version = "0.1.0"
+          }
+          else {
+            $parsed = [version]($latestTag.TrimStart("v"))
+            $version = "{0}.{1}.{2}" -f $parsed.Major, $parsed.Minor, ($parsed.Build + 1)
+          }
+
+          $tag = "v$version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if (-not (git rev-parse --verify "refs/tags/$tag" 2>$null)) {
+            git tag -a $tag -m "Release $tag"
+            git push origin $tag
+          }
+        }
+        else {
+          $version = "0.0.${{ github.run_number }}"
+          $tag = "v$version"
+        }
+
+        "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
     - name: Setup NuGet
       uses: NuGet/setup-nuget@v2
+
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2      
+      uses: microsoft/setup-msbuild@v2
+
     - name: Restore packages
       run: nuget restore VATNZPlugin.csproj
+
     - name: Download Vatsys Installer
       run: curl -L -o vatSysSetup.zip https://vatsys.sawbe.com/downloads/vatSysSetup.zip
+
     - name: Extract ZIP
       run: Expand-Archive vatSysSetup.zip -DestinationPath extracted
-    - name: Extract MSI 
+
+    - name: Extract MSI
       run: |
-        mkdir vatSys-extracted 
+        mkdir vatSys-extracted
         msiexec /a extracted\vatSysSetup.msi /qn TARGETDIR=$PWD\vatSys-extracted
+
     - name: Build solution
       run: msbuild VATNZPlugin.csproj /p:Configuration=Release /p:VatsysPath="vatSys-extracted\\bin\vatSys.exe"
-    - name: Upload build output
+
+    - name: Prepare release zip
+      if: github.event_name != 'pull_request'
+      shell: pwsh
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        $releaseDir = "VATNZPlugin-$version"
+        $zipPath = "VATNZPlugin-$version.zip"
+
+        New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+        Copy-Item -Path "bin\x86\Release\*" -Destination $releaseDir -Recurse -Force
+        Compress-Archive -Path "$releaseDir\*" -DestinationPath $zipPath -Force
+
+    - name: Upload PR build artifact
+      if: github.event_name == 'pull_request'
       uses: actions/upload-artifact@v4
       with:
-        name: VATNZPlugin
+        name: VATNZPlugin-PR-${{ github.run_number }}
         path: bin\x86\Release\
+
+    - name: Upload release artifact
+      if: github.event_name != 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: VATNZPlugin-${{ steps.version.outputs.version }}
+        path: |
+          bin\x86\Release\
+          VATNZPlugin-${{ steps.version.outputs.version }}.zip
+
+    - name: Create GitHub release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: VATNZPlugin ${{ steps.version.outputs.version }}
+        files: VATNZPlugin-${{ steps.version.outputs.version }}.zip
+        generate_release_notes: true
